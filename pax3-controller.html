@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PAX 3</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Bebas+Neue&display=swap');
+  :root {
+    --bg: #0a0a0a; --surface: #111111; --border: #1e1e1e;
+    --text: #e8e8e8; --muted: #444; --accent: #ff6b2b;
+    --accent2: #ffb347; --green: #4ade80; --red: #f87171;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 24px;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  }
+  .container { width: 100%; max-width: 380px; position: relative; z-index: 1; }
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
+  .logo { font-family: 'Bebas Neue', sans-serif; font-size: 42px; letter-spacing: 6px; line-height: 1; }
+  .logo span { color: var(--accent); }
+  .status-pill {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--muted); border: 1px solid var(--border);
+    padding: 6px 12px; border-radius: 99px; transition: all 0.3s;
+  }
+  .status-pill.connected { color: var(--green); border-color: var(--green); }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); transition: background 0.3s; }
+  .status-pill.connected .status-dot { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .connect-btn {
+    width: 100%; padding: 18px; background: transparent;
+    border: 1px solid var(--accent); color: var(--accent);
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    letter-spacing: 3px; text-transform: uppercase;
+    cursor: pointer; border-radius: 4px; transition: all 0.2s; margin-bottom: 24px;
+  }
+  .connect-btn:hover { background: var(--accent); color: #000; }
+  .connect-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 28px; margin-bottom: 16px;
+    opacity: 0.3; pointer-events: none; transition: opacity 0.4s;
+  }
+  .card.active { opacity: 1; pointer-events: all; }
+  .card-label { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: var(--muted); margin-bottom: 20px; }
+  .temp-section { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+  .dial-wrapper { position: relative; width: 200px; height: 200px; }
+  .dial-svg { width: 100%; height: 100%; transform: rotate(-135deg); }
+  .dial-track { fill: none; stroke: var(--border); stroke-width: 8; stroke-linecap: round; }
+  .dial-fill { fill: none; stroke: url(#dialGrad); stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 0.3s ease; }
+  .dial-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; pointer-events: none; }
+  .temp-display { font-family: 'Bebas Neue', sans-serif; font-size: 56px; line-height: 1; letter-spacing: 2px; }
+  .temp-unit { font-size: 11px; letter-spacing: 3px; color: var(--muted); text-transform: uppercase; }
+  .temp-live { font-size: 10px; color: var(--muted); margin-top: 2px; letter-spacing: 1px; }
+  .temp-slider-wrap { width: 100%; display: flex; align-items: center; gap: 12px; }
+  .temp-label { font-size: 9px; color: var(--muted); letter-spacing: 1px; min-width: 28px; }
+  input[type=range] { -webkit-appearance: none; width: 100%; height: 3px; background: var(--border); border-radius: 99px; outline: none; cursor: pointer; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); cursor: pointer; box-shadow: 0 0 10px rgba(255,107,43,0.5); transition: box-shadow 0.2s; }
+  input[type=range]::-webkit-slider-thumb:hover { box-shadow: 0 0 18px rgba(255,107,43,0.8); }
+  .profiles { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+  .profile-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 2px;
+    text-transform: uppercase; padding: 12px 8px; border-radius: 4px;
+    cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  }
+  .profile-btn:hover { border-color: var(--accent); color: var(--text); }
+  .profile-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(255,107,43,0.08); }
+  .profile-icon { font-size: 16px; }
+  .battery-row { display: flex; align-items: center; justify-content: space-between; }
+  .battery-bar-wrap { display: flex; align-items: center; gap: 10px; }
+  .battery-bar { width: 80px; height: 6px; background: var(--border); border-radius: 99px; overflow: hidden; }
+  .battery-fill { height: 100%; background: var(--green); border-radius: 99px; transition: width 0.5s ease; }
+  .battery-pct { font-size: 11px; color: var(--muted); }
+  .state-badge { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--border); color: var(--muted); transition: all 0.3s; }
+  .state-badge.heating { border-color: var(--accent); color: var(--accent); background: rgba(255,107,43,0.08); }
+  .state-badge.ready { border-color: var(--green); color: var(--green); background: rgba(74,222,128,0.08); }
+  .error-msg { font-size: 10px; color: var(--red); letter-spacing: 1px; text-align: center; margin-top: 12px; min-height: 16px; }
+  .disconnect-btn { background: transparent; border: none; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; padding: 8px; transition: color 0.2s; }
+  .disconnect-btn:hover { color: var(--red); }
+  .footer { display: flex; justify-content: center; margin-top: 8px; }
+  .spinner { display: inline-block; width: 10px; height: 10px; border: 1px solid var(--muted); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="logo">PA<span>X</span> 3</div>
+    <div class="status-pill" id="statusPill">
+      <div class="status-dot"></div>
+      <span id="statusText">Offline</span>
+    </div>
+  </div>
+
+  <button class="connect-btn" id="connectBtn" onclick="connectDevice()">Connect Device</button>
+
+  <div class="card" id="tempCard">
+    <div class="card-label">Temperature</div>
+    <div class="temp-section">
+      <div class="dial-wrapper">
+        <svg class="dial-svg" viewBox="0 0 100 100">
+          <defs>
+            <linearGradient id="dialGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" style="stop-color:#ff6b2b"/>
+              <stop offset="100%" style="stop-color:#ffb347"/>
+            </linearGradient>
+          </defs>
+          <circle class="dial-track" cx="50" cy="50" r="38" stroke-dasharray="179.07 238.76" stroke-dashoffset="0"/>
+          <circle class="dial-fill" id="dialFill" cx="50" cy="50" r="38" stroke-dasharray="179.07 238.76" stroke-dashoffset="179.07"/>
+        </svg>
+        <div class="dial-center">
+          <div class="temp-display" id="tempDisplay">360</div>
+          <div class="temp-unit">°F target</div>
+          <div class="temp-live" id="tempLive">— actual</div>
+        </div>
+      </div>
+      <div class="temp-slider-wrap">
+        <span class="temp-label">360°</span>
+        <input type="range" id="tempSlider" min="360" max="420" step="1" value="360"
+          oninput="onTempChange(this.value)" onchange="sendTemperature(this.value)">
+        <span class="temp-label">420°</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="profileCard">
+    <div class="card-label">Heat Profile</div>
+    <div class="profiles">
+      <button class="profile-btn active" id="profile-0" onclick="setProfile(0)">
+        <span class="profile-icon">◈</span>Standard
+      </button>
+      <button class="profile-btn" id="profile-1" onclick="setProfile(1)">
+        <span class="profile-icon">▲</span>Boost
+      </button>
+      <button class="profile-btn" id="profile-2" onclick="setProfile(2)">
+        <span class="profile-icon">◇</span>Efficiency
+      </button>
+    </div>
+  </div>
+
+  <div class="card" id="statusCard">
+    <div class="battery-row">
+      <div class="battery-bar-wrap">
+        <div class="battery-bar"><div class="battery-fill" id="batteryFill" style="width:0%"></div></div>
+        <span class="battery-pct" id="batteryPct">—</span>
+      </div>
+      <div class="state-badge" id="stateBadge">Idle</div>
+    </div>
+  </div>
+
+  <div class="error-msg" id="errorMsg"></div>
+  <div class="footer">
+    <button class="disconnect-btn" id="disconnectBtn" onclick="disconnectDevice()" style="display:none">Disconnect</button>
+  </div>
+</div>
+
+<script>
+// ── Tiny AES-128 ECB (pure JS) ────────────────────────────────────────────────
+function aesECBEncrypt(key, data) {
+  const sbox=[0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16];
+  const rcon=[0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1b,0x36];
+  function gmul(a,b){let p=0;for(let i=0;i<8;i++){if(b&1)p^=a;const h=a&0x80;a=(a<<1)&0xff;if(h)a^=0x1b;b>>=1;}return p;}
+  const Nk=4,Nr=10,w=new Array(4*(Nr+1));
+  for(let i=0;i<Nk;i++)w[i]=[key[4*i],key[4*i+1],key[4*i+2],key[4*i+3]];
+  for(let i=Nk;i<4*(Nr+1);i++){let t=[...w[i-1]];if(i%Nk===0)t=[sbox[t[1]]^rcon[i/Nk-1],sbox[t[2]],sbox[t[3]],sbox[t[0]]];w[i]=w[i-Nk].map((v,j)=>v^t[j]);}
+  let s=[];for(let c=0;c<4;c++)s.push([data[c],data[4+c],data[8+c],data[12+c]]);
+  const ark=(s,r)=>{for(let c=0;c<4;c++)for(let i=0;i<4;i++)s[c][i]^=w[r*4+c][i];};
+  const sub=(s)=>{for(let c=0;c<4;c++)for(let i=0;i<4;i++)s[c][i]=sbox[s[c][i]];};
+  const shr=(s)=>{for(let r=1;r<4;r++){const t=s.map(c=>c[r]);for(let c=0;c<4;c++)s[c][r]=t[(c+r)%4];}};
+  const mix=(s)=>{for(let c=0;c<4;c++){const[a,b,d,e]=s[c];s[c][0]=gmul(a,2)^gmul(b,3)^d^e;s[c][1]=a^gmul(b,2)^gmul(d,3)^e;s[c][2]=a^b^gmul(d,2)^gmul(e,3);s[c][3]=gmul(a,3)^b^d^gmul(e,2);}};
+  ark(s,0);
+  for(let r=1;r<=Nr;r++){sub(s);shr(s);if(r<Nr)mix(s);ark(s,r);}
+  const out=new Uint8Array(16);
+  for(let c=0;c<4;c++)for(let r=0;r<4;r++)out[c+r*4]=s[c][r];
+  return out;
+}
+
+function aesOFBEncrypt(key, iv, data) {
+  const block = new Uint8Array(16);
+  block.set(iv);
+  const out = new Uint8Array(data.length);
+  for (let i = 0; i < data.length; i += 16) {
+    const ks = aesECBEncrypt(key, block);
+    for (let j = 0; j < 16 && i+j < data.length; j++) out[i+j] = data[i+j] ^ ks[j];
+    block.set(ks);
+  }
+  return out;
+}
+
+// ── PAX Protocol Constants (from web app source) ─────────────────────────────
+const MASTER_KEY      = new Uint8Array([247,200,102,195,143,120,117,48,134,41,59,213,125,211,37,64]);
+const SERVICE_UUID    = '8e320200-64d2-11e6-bdf4-0800200c9a66';
+const CHAR_READ_UUID  = '8e320201-64d2-11e6-bdf4-0800200c9a66';
+const CHAR_WRITE_UUID = '8e320202-64d2-11e6-bdf4-0800200c9a66';
+const CHAR_NOTIFY_UUID= '8e320203-64d2-11e6-bdf4-0800200c9a66';
+const DEV_INFO_SVC    = '0000180a-0000-1000-8000-00805f9b34fb';
+const SYSTEM_ID_UUID  = '00002a23-0000-1000-8000-00805f9b34fb';
+
+// Attribute byte IDs (confirmed from minified source)
+const ATTR_ACTUAL_TEMP    = 1;
+const ATTR_HEATER_SET     = 2;
+const ATTR_CHARGE_STATUS  = 3;
+const ATTR_DYNAMIC_MODE   = 19;
+const ATTR_HEATING_STATE  = 20;
+const ATTR_HAPTIC         = 23;
+const ATTR_STATUS_UPDATE  = 254;
+
+const HAPTIC_ON  = 128; // 100% = Math.round(128 * 1.0)
+const HAPTIC_OFF = 0;
+
+let device=null, gatt=null, writeChar=null, readChar=null, notifyChar=null;
+let sessionKey=null, iv=null;
+let currentProfile=0, currentTempF=360;
+
+function deriveSessionKey(serial) {
+  const input = new TextEncoder().encode((serial+serial).slice(0,16));
+  return aesECBEncrypt(MASTER_KEY, input);
+}
+
+function encryptPacket(plaintext) {
+  const padded = new Uint8Array(16);
+  padded.set(plaintext.slice(0,16));
+  const encrypted = aesOFBEncrypt(sessionKey, iv, padded);
+  const packet = new Uint8Array(32);
+  packet.set(encrypted, 0);
+  packet.set(iv, 16);
+  return packet;
+}
+
+function decryptPacket(data) {
+  const ct = new Uint8Array(data.buffer || data).slice(0,16);
+  const piv = new Uint8Array(data.buffer || data).slice(16,32);
+  return aesOFBEncrypt(sessionKey, piv, ct);
+}
+
+function buildPacket(attrId, ...bytes) {
+  const p = new Uint8Array(16);
+  p[0] = attrId;
+  bytes.forEach((b,i) => p[1+i] = b);
+  return p;
+}
+
+function buildTempPacket(tempF) {
+  const tempC = (tempF - 32) * 5 / 9;
+  const encoded = Math.round(tempC * 10);
+  return buildPacket(ATTR_HEATER_SET, encoded & 0xff, (encoded >> 8) & 0xff);
+}
+
+function buildProfilePacket(idx) {
+  return buildPacket(ATTR_DYNAMIC_MODE, idx);
+}
+
+function buildHapticPacket(on) {
+  return buildPacket(ATTR_HAPTIC, on ? HAPTIC_ON : HAPTIC_OFF);
+}
+
+function buildStatusRequestPacket() {
+  // Request ActualTemp, HeaterSet, ChargeStatus, HeatingState, DynamicMode
+  const attrs = [ATTR_ACTUAL_TEMP, ATTR_HEATER_SET, ATTR_CHARGE_STATUS, ATTR_HEATING_STATE, ATTR_DYNAMIC_MODE];
+  let bits = BigInt(0);
+  attrs.forEach(a => bits |= (BigInt(1) << BigInt(a)));
+  const p = new Uint8Array(16);
+  p[0] = ATTR_STATUS_UPDATE;
+  for (let i = 0; i < 8; i++) p[1+i] = Number((bits >> BigInt(8*i)) & BigInt(0xff));
+  return p;
+}
+
+async function sendPacket(plaintext) {
+  if (!writeChar) return;
+  try {
+    await writeChar.writeValue(encryptPacket(plaintext));
+  } catch(e) { console.warn('write error', e); }
+}
+
+async function readAndProcess() {
+  if (!readChar) return;
+  try {
+    const val = await readChar.readValue();
+    const bytes = new Uint8Array(val.buffer);
+    if (bytes.length >= 32) processMessage(decryptPacket(bytes));
+  } catch(e) { console.warn('read error', e); }
+}
+
+function processMessage(data) {
+  switch(data[0]) {
+    case ATTR_ACTUAL_TEMP: {
+      const raw = data[1] | (data[2] << 8);
+      const f = Math.round(raw / 10 * 9/5 + 32);
+      document.getElementById('tempLive').textContent = f + '° actual';
+      break;
+    }
+    case ATTR_CHARGE_STATUS: {
+      // charge status: 0=charging, 1=charged, 2=discharging + battery %
+      const pct = data[2];
+      if (pct > 0 && pct <= 100) updateBattery(pct);
+      break;
+    }
+    case ATTR_HEATER_SET: {
+      const raw = data[1] | (data[2] << 8);
+      const f = Math.round(raw / 10 * 9/5 + 32);
+      if (f >= 360 && f <= 420) {
+        currentTempF = f;
+        document.getElementById('tempDisplay').textContent = f;
+        document.getElementById('tempSlider').value = f;
+        updateDial(f);
+      }
+      break;
+    }
+    case ATTR_HEATING_STATE: {
+      const state = data[1];
+      const badge = document.getElementById('stateBadge');
+      if (state === 1) { badge.textContent='Heating'; badge.className='state-badge heating'; }
+      else if (state === 2) { badge.textContent='Ready'; badge.className='state-badge ready'; }
+      else { badge.textContent='Idle'; badge.className='state-badge'; }
+      break;
+    }
+    case ATTR_DYNAMIC_MODE: {
+      const mode = data[1];
+      if (mode >= 0 && mode <= 2) { currentProfile=mode; updateProfileUI(mode); }
+      break;
+    }
+  }
+}
+
+// ── Connection ────────────────────────────────────────────────────────────────
+async function connectDevice() {
+  setError('');
+  const btn = document.getElementById('connectBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Connecting...';
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'PAX3' }, { namePrefix: 'PAX3' }],
+      optionalServices: [SERVICE_UUID, DEV_INFO_SVC]
+    });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    gatt = await device.gatt.connect();
+
+    // Serial — try to read from device, fall back to prompt
+    let serial = 'DN6W1DN9';
+    try {
+      const infoSvc = await gatt.getPrimaryService(DEV_INFO_SVC);
+      const sysIdChar = await infoSvc.getCharacteristic(SYSTEM_ID_UUID);
+      const val = await sysIdChar.readValue();
+      const s = String.fromCharCode(...new Uint8Array(val.buffer)).replace(/[^\x20-\x7E]/g,'').trim();
+      if (s.length >= 4) serial = s.slice(0,8).toUpperCase();
+    } catch(e) {}
+
+    sessionKey = deriveSessionKey(serial);
+    // IV = first 16 bytes of service UUID string (matches PAX web app getUuid(16))
+    iv = new TextEncoder().encode(SERVICE_UUID).slice(0,16);
+
+    const paxSvc = await gatt.getPrimaryService(SERVICE_UUID);
+    readChar   = await paxSvc.getCharacteristic(CHAR_READ_UUID);
+    writeChar  = await paxSvc.getCharacteristic(CHAR_WRITE_UUID);
+    notifyChar = await paxSvc.getCharacteristic(CHAR_NOTIFY_UUID);
+
+    notifyChar.addEventListener('characteristicvaluechanged', () => readAndProcess());
+    await notifyChar.startNotifications();
+
+    // Request full status on connect
+    await sendPacket(buildStatusRequestPacket());
+    setTimeout(() => readAndProcess(), 300);
+
+    setConnected(true);
+    startPolling();
+  } catch(e) {
+    setError(e.message || 'Connection failed');
+    btn.disabled = false;
+    btn.innerHTML = 'Connect Device';
+  }
+}
+
+function onDisconnected() { setConnected(false); stopPolling(); }
+function disconnectDevice() { if(gatt?.connected) gatt.disconnect(); setConnected(false); stopPolling(); }
+
+let pollInterval = null;
+function startPolling() {
+  pollInterval = setInterval(async () => {
+    await sendPacket(buildStatusRequestPacket());
+    setTimeout(() => readAndProcess(), 300);
+  }, 3000);
+}
+function stopPolling() { if(pollInterval){clearInterval(pollInterval);pollInterval=null;} }
+
+// ── UI Actions ────────────────────────────────────────────────────────────────
+function onTempChange(val) {
+  currentTempF = parseInt(val);
+  document.getElementById('tempDisplay').textContent = currentTempF;
+  updateDial(currentTempF);
+}
+
+async function sendTemperature(val) {
+  currentTempF = parseInt(val);
+  await sendPacket(buildTempPacket(currentTempF));
+  await sendPacket(buildHapticPacket(true));   // vibrate on temp change
+  setTimeout(() => readAndProcess(), 300);
+}
+
+async function setProfile(index) {
+  currentProfile = index;
+  updateProfileUI(index);
+  await sendPacket(buildProfilePacket(index));
+  await sendPacket(buildHapticPacket(true));   // vibrate on profile change
+  setTimeout(() => readAndProcess(), 300);
+}
+
+function updateProfileUI(active) {
+  [0,1,2].forEach(i => {
+    document.getElementById('profile-'+i).className = 'profile-btn' + (i===active?' active':'');
+  });
+}
+
+function updateDial(tempF) {
+  const pct = (tempF - 360) / 60;
+  document.getElementById('dialFill').style.strokeDashoffset = 179.07 * (1 - pct);
+}
+
+function updateBattery(pct) {
+  document.getElementById('batteryFill').style.width = pct + '%';
+  document.getElementById('batteryPct').textContent = pct + '%';
+  document.getElementById('batteryFill').style.background =
+    pct > 30 ? 'var(--green)' : pct > 15 ? '#facc15' : 'var(--red)';
+}
+
+function setConnected(connected) {
+  const pill = document.getElementById('statusPill');
+  const btn  = document.getElementById('connectBtn');
+  const dBtn = document.getElementById('disconnectBtn');
+  if (connected) {
+    pill.className = 'status-pill connected';
+    document.getElementById('statusText').textContent = 'Connected';
+    btn.style.display = 'none'; dBtn.style.display = 'block';
+    ['tempCard','profileCard','statusCard'].forEach(id => document.getElementById(id).classList.add('active'));
+    updateDial(currentTempF);
+  } else {
+    pill.className = 'status-pill';
+    document.getElementById('statusText').textContent = 'Offline';
+    btn.style.display = 'block'; btn.disabled = false; btn.innerHTML = 'Connect Device';
+    dBtn.style.display = 'none';
+    ['tempCard','profileCard','statusCard'].forEach(id => document.getElementById(id).classList.remove('active'));
+    device=null; gatt=null; writeChar=null; readChar=null; notifyChar=null;
+  }
+}
+
+function setError(msg) {
+  document.getElementById('errorMsg').textContent = msg;
+  if (msg) setTimeout(() => setError(''), 5000);
+}
+
+updateDial(360);
+</script>
+</body>
+</html>
