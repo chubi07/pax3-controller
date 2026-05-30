@@ -84,6 +84,11 @@
   .state-badge { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--border); color: var(--muted); transition: all 0.3s; }
   .state-badge.heating { border-color: var(--accent); color: var(--accent); background: rgba(255,107,43,0.08); }
   .state-badge.ready { border-color: var(--green); color: var(--green); background: rgba(74,222,128,0.08); }
+  .debug-panel { background: #050505; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 16px; font-size: 9px; line-height: 1.4; color: #888; white-space: pre; overflow-x: auto; max-height: 220px; overflow-y: auto; }
+  .debug-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; }
+  .debug-btns { display: flex; gap: 6px; }
+  .debug-btns button { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 8px; font-size: 9px; font-family: inherit; border-radius: 3px; cursor: pointer; letter-spacing: 1px; }
+  .debug-btns button:hover { color: var(--accent); border-color: var(--accent); }
   .error-msg { font-size: 10px; color: var(--red); letter-spacing: 1px; text-align: center; margin-top: 12px; min-height: 16px; }
   .disconnect-btn { background: transparent; border: none; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; padding: 8px; transition: color 0.2s; }
   .disconnect-btn:hover { color: var(--red); }
@@ -156,6 +161,19 @@
       </div>
       <div class="state-badge" id="stateBadge">Idle</div>
     </div>
+  </div>
+
+  <div class="card" style="padding:16px;">
+    <div class="debug-header">
+      <span>Debug</span>
+      <div class="debug-btns">
+        <button onclick="testHaptic(1)">H:1</button>
+        <button onclick="testHaptic(128)">H:128</button>
+        <button onclick="testHaptic(255)">H:255</button>
+        <button onclick="document.getElementById('debugPanel').textContent=''">Clear</button>
+      </div>
+    </div>
+    <div class="debug-panel" id="debugPanel"></div>
   </div>
 
   <div class="error-msg" id="errorMsg"></div>
@@ -275,11 +293,27 @@ function buildStatusRequestPacket() {
   return p;
 }
 
-async function sendPacket(plaintext) {
+function toHex(arr) {
+  return Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join(' ');
+}
+
+function debugLog(msg) {
+  console.log('[PAX]', msg);
+  const el = document.getElementById('debugPanel');
+  if (!el) return;
+  const ts = new Date().toLocaleTimeString().slice(0,8);
+  el.textContent = ts + ' ' + msg + '\n' + el.textContent;
+  // keep last ~25 lines
+  const lines = el.textContent.split('\n').slice(0,25);
+  el.textContent = lines.join('\n');
+}
+
+async function sendPacket(plaintext, label) {
   if (!writeChar) return;
   try {
+    debugLog('SEND' + (label?'['+label+']':'') + ' ' + toHex(plaintext));
     await writeChar.writeValue(encryptPacket(plaintext));
-  } catch(e) { console.warn('write error', e); }
+  } catch(e) { debugLog('WRITE ERR ' + e.message); }
 }
 
 async function readAndProcess() {
@@ -365,7 +399,15 @@ async function connectDevice() {
     writeChar  = await paxSvc.getCharacteristic(CHAR_WRITE_UUID);
     notifyChar = await paxSvc.getCharacteristic(CHAR_NOTIFY_UUID);
 
-    notifyChar.addEventListener('characteristicvaluechanged', () => readAndProcess());
+    notifyChar.addEventListener('characteristicvaluechanged', (event) => {
+      const bytes = new Uint8Array(event.target.value.buffer);
+      debugLog('NOTIFY ' + toHex(bytes));
+      if (bytes.length >= 32) {
+        const dec = decryptPacket(bytes);
+        debugLog('DEC    ' + toHex(dec).slice(0, 47));
+        processMessage(dec);
+      }
+    });
     await notifyChar.startNotifications();
 
     // Request full status on connect
@@ -402,16 +444,21 @@ function onTempChange(val) {
 
 async function sendTemperature(val) {
   currentTempF = parseInt(val);
-  await sendPacket(buildTempPacket(currentTempF));
-  await sendPacket(buildHapticPacket(true));   // vibrate on temp change
+  await sendPacket(buildTempPacket(currentTempF), 'temp');
+  await sendPacket(buildHapticPacket(true), 'haptic');   // vibrate on temp change
   setTimeout(() => readAndProcess(), 300);
+}
+
+async function testHaptic(val) {
+  debugLog('-- test haptic val=' + val + ' --');
+  await sendPacket(buildPacket(ATTR_HAPTIC, val), 'haptic-test');
 }
 
 async function setProfile(index) {
   currentProfile = index;
   updateProfileUI(index);
-  await sendPacket(buildProfilePacket(index));
-  await sendPacket(buildHapticPacket(true));   // vibrate on profile change
+  await sendPacket(buildProfilePacket(index), 'profile');
+  await sendPacket(buildHapticPacket(true), 'haptic');   // vibrate on profile change
   setTimeout(() => readAndProcess(), 300);
 }
 
