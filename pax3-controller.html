@@ -85,9 +85,12 @@
   .state-badge.heating { border-color: var(--accent); color: var(--accent); background: rgba(255,107,43,0.08); }
   .state-badge.ready { border-color: var(--green); color: var(--green); background: rgba(74,222,128,0.08); }
   .debug-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; pointer-events: auto; opacity: 1; }
+  .info-grid { display: grid; grid-template-columns: 70px 1fr; gap: 4px 10px; font-size: 10px; color: #888; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); word-break: break-all; line-height: 1.4; }
+  .info-grid:empty { display: none; }
+  .info-grid b { color: var(--accent); font-weight: 500; letter-spacing: 1px; text-transform: uppercase; font-size: 9px; }
   .debug-panel { background: #050505; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 12px; font-size: 10px; line-height: 1.5; color: #aaa; white-space: pre; overflow-x: auto; max-height: 320px; overflow-y: auto; -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
   .debug-header { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; }
-  .debug-btns { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .debug-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .debug-btns button { background: #1a1a1a; border: 1px solid var(--border); color: var(--text); padding: 12px 4px; font-size: 12px; font-family: inherit; font-weight: 500; border-radius: 6px; cursor: pointer; letter-spacing: 1px; min-height: 44px; -webkit-tap-highlight-color: rgba(255,107,43,0.5); touch-action: manipulation; -webkit-appearance: none; appearance: none; }
   .debug-btns button:active { background: var(--accent); color: #000; border-color: var(--accent); }
   .error-msg { font-size: 10px; color: var(--red); letter-spacing: 1px; text-align: center; margin-top: 12px; min-height: 16px; }
@@ -165,12 +168,12 @@
   </div>
 
   <div class="debug-wrap">
+    <div class="info-grid" id="infoGrid"></div>
     <div class="debug-header">
       <span>Debug</span>
       <div class="debug-btns">
-        <button type="button" onclick="testHaptic(1)">H:1</button>
-        <button type="button" onclick="testHaptic(128)">H:128</button>
-        <button type="button" onclick="testHaptic(255)">H:255</button>
+        <button type="button" onclick="setHapticMode(1)">Hap ON</button>
+        <button type="button" onclick="setHapticMode(0)">Hap OFF</button>
         <button type="button" onclick="copyDebug()">Copy</button>
         <button type="button" onclick="document.getElementById('debugPanel').textContent=''">Clr</button>
       </div>
@@ -224,18 +227,23 @@ const CHAR_READ_UUID  = '8e320201-64d2-11e6-bdf4-0800200c9a66';
 const CHAR_WRITE_UUID = '8e320202-64d2-11e6-bdf4-0800200c9a66';
 const CHAR_NOTIFY_UUID= '8e320203-64d2-11e6-bdf4-0800200c9a66';
 const DEV_INFO_SVC    = '0000180a-0000-1000-8000-00805f9b34fb';
-const SYSTEM_ID_UUID  = '00002a23-0000-1000-8000-00805f9b34fb';
+const SERIAL_UUID     = '00002a25-0000-1000-8000-00805f9b34fb';  // Serial Number String
 
 // Attribute byte IDs (confirmed from minified source)
-const ATTR_ACTUAL_TEMP    = 1;
-const ATTR_HEATER_SET     = 2;
-const ATTR_CHARGE_STATUS  = 3;
-const ATTR_DYNAMIC_MODE   = 19;
-const ATTR_HEATING_STATE  = 20;
-const ATTR_HAPTIC         = 23;
-const ATTR_STATUS_UPDATE  = 254;
+// Pax3 attribute IDs (from kush-kontroller reference impl)
+const ATTR_ACTUAL_TEMP     = 1;
+const ATTR_HEATER_SET      = 2;
+const ATTR_BATTERY         = 3;
+const ATTR_CHARGE_STATUS   = 7;
+const ATTR_DYNAMIC_MODE    = 19;
+const ATTR_HAPTIC_MODE     = 23;  // on/off setting (0=off, 1=on)
+const ATTR_CURRENT_TARGET  = 31;
+const ATTR_HEATING_STATE   = 32;  // 0=heating,1=ready,2=boosting,3=cooling,4=standby,5=ovenOff
+const ATTR_STATUS_UPDATE   = 254;
 
-const HAPTIC_ON  = 128; // 100% = Math.round(128 * 1.0)
+// Aliases for compatibility (older code references these names)
+const ATTR_HAPTIC          = ATTR_HAPTIC_MODE;
+const HAPTIC_ON  = 1;
 const HAPTIC_OFF = 0;
 
 let device=null, gatt=null, writeChar=null, readChar=null, notifyChar=null;
@@ -287,8 +295,8 @@ function buildHapticPacket(on) {
 }
 
 function buildStatusRequestPacket() {
-  // Request ActualTemp, HeaterSet, ChargeStatus, HeatingState, DynamicMode
-  const attrs = [ATTR_ACTUAL_TEMP, ATTR_HEATER_SET, ATTR_CHARGE_STATUS, ATTR_HEATING_STATE, ATTR_DYNAMIC_MODE];
+  // Request ActualTemp, HeaterSet, Battery, ChargeStatus, HeatingState, DynamicMode
+  const attrs = [ATTR_ACTUAL_TEMP, ATTR_HEATER_SET, ATTR_BATTERY, ATTR_CHARGE_STATUS, ATTR_HEATING_STATE, ATTR_DYNAMIC_MODE];
   let bits = BigInt(0);
   attrs.forEach(a => bits |= (BigInt(1) << BigInt(a)));
   const p = new Uint8Array(16);
@@ -307,9 +315,18 @@ function debugLog(msg) {
   if (!el) return;
   const ts = new Date().toLocaleTimeString().slice(0,8);
   el.textContent = ts + ' ' + msg + '\n' + el.textContent;
-  // keep last ~25 lines
-  const lines = el.textContent.split('\n').slice(0,25);
+  // keep last ~100 lines
+  const lines = el.textContent.split('\n').slice(0,100);
   el.textContent = lines.join('\n');
+}
+
+const _info = {};
+function setInfo(key, val) {
+  _info[key] = val;
+  const el = document.getElementById('infoGrid');
+  if (!el) return;
+  el.innerHTML = Object.entries(_info)
+    .map(([k,v]) => `<b>${k}</b><span>${v}</span>`).join('');
 }
 
 async function sendPacket(plaintext, label) {
@@ -337,10 +354,14 @@ function processMessage(data) {
       document.getElementById('tempLive').textContent = f + '° actual';
       break;
     }
-    case ATTR_CHARGE_STATUS: {
-      // charge status: 0=charging, 1=charged, 2=discharging + battery %
-      const pct = data[2];
+    case ATTR_BATTERY: {
+      // Battery percentage 0-100 (first byte of payload)
+      const pct = data[1];
       if (pct > 0 && pct <= 100) updateBattery(pct);
+      break;
+    }
+    case ATTR_CHARGE_STATUS: {
+      // Charging state — keep parsing if needed
       break;
     }
     case ATTR_HEATER_SET: {
@@ -355,11 +376,15 @@ function processMessage(data) {
       break;
     }
     case ATTR_HEATING_STATE: {
+      // 0=heating, 1=ready, 2=boosting, 3=cooling, 4=standby, 5=ovenOff, 6=tempSetMode
       const state = data[1];
       const badge = document.getElementById('stateBadge');
-      if (state === 1) { badge.textContent='Heating'; badge.className='state-badge heating'; }
-      else if (state === 2) { badge.textContent='Ready'; badge.className='state-badge ready'; }
-      else { badge.textContent='Idle'; badge.className='state-badge'; }
+      if (state === 0) { badge.textContent='Heating'; badge.className='state-badge heating'; }
+      else if (state === 1) { badge.textContent='Ready'; badge.className='state-badge ready'; }
+      else if (state === 2) { badge.textContent='Boosting'; badge.className='state-badge heating'; }
+      else if (state === 3) { badge.textContent='Cooling'; badge.className='state-badge'; }
+      else if (state === 4) { badge.textContent='Standby'; badge.className='state-badge'; }
+      else { badge.textContent='Off'; badge.className='state-badge'; }
       break;
     }
     case ATTR_DYNAMIC_MODE: {
@@ -384,25 +409,36 @@ async function connectDevice() {
     device.addEventListener('gattserverdisconnected', onDisconnected);
     gatt = await device.gatt.connect();
 
-    // Serial — try to read from device, fall back to prompt
+    // Device name as fallback signal
+    setInfo('Device', device.name || '?');
+
+    // Serial — read from standard BLE Serial Number String characteristic (0x2A25)
     let serial = 'DN6W1DN9';
     let serialSource = 'fallback';
     try {
       const infoSvc = await gatt.getPrimaryService(DEV_INFO_SVC);
-      const sysIdChar = await infoSvc.getCharacteristic(SYSTEM_ID_UUID);
-      const val = await sysIdChar.readValue();
+      const serialChar = await infoSvc.getCharacteristic(SERIAL_UUID);
+      const val = await serialChar.readValue();
       const raw = new Uint8Array(val.buffer, val.byteOffset, val.byteLength);
-      debugLog('SYS_ID raw[' + raw.length + 'b] ' + toHex(raw));
+      debugLog('SERIAL raw[' + raw.length + 'b] ' + toHex(raw));
       const s = String.fromCharCode(...raw).replace(/[^\x20-\x7E]/g,'').trim();
-      debugLog('SYS_ID str "' + s + '"');
+      debugLog('SERIAL str "' + s + '"');
+      setInfo('SN raw', toHex(raw));
+      setInfo('SN str', s || '(empty)');
       if (s.length >= 4) { serial = s.slice(0,8).toUpperCase(); serialSource = 'device'; }
-    } catch(e) { debugLog('SYS_ID err ' + e.message); }
-    debugLog('SERIAL ' + serial + ' (' + serialSource + ')');
+    } catch(e) {
+      debugLog('SERIAL read err ' + e.message);
+      setInfo('SN err', e.message);
+    }
+    debugLog('USING SERIAL ' + serial + ' (' + serialSource + ')');
+    setInfo('Serial', serial + ' [' + serialSource + ']');
 
     sessionKey = deriveSessionKey(serial);
     debugLog('SESSKEY ' + toHex(sessionKey));
+    setInfo('Key', toHex(sessionKey));
     // IV = first 16 bytes of service UUID string (matches PAX web app getUuid(16))
     iv = new TextEncoder().encode(SERVICE_UUID).slice(0,16);
+    setInfo('IV', toHex(iv));
     debugLog('IV     ' + toHex(iv));
 
     const paxSvc = await gatt.getPrimaryService(SERVICE_UUID);
@@ -469,13 +505,13 @@ function onTempChange(val) {
 async function sendTemperature(val) {
   currentTempF = parseInt(val);
   await sendPacket(buildTempPacket(currentTempF), 'temp');
-  await sendPacket(buildHapticPacket(true), 'haptic');   // vibrate on temp change
+  // PAX vibrates automatically when HapticMode is enabled; no manual trigger
   setTimeout(() => readAndProcess(), 300);
 }
 
-async function testHaptic(val) {
-  debugLog('-- test haptic val=' + val + ' --');
-  await sendPacket(buildPacket(ATTR_HAPTIC, val), 'haptic-test');
+async function setHapticMode(on) {
+  debugLog('-- HapticMode = ' + on + ' --');
+  await sendPacket(buildPacket(ATTR_HAPTIC_MODE, on ? 1 : 0), 'hap-mode');
 }
 
 function copyDebug() {
@@ -504,7 +540,7 @@ async function setProfile(index) {
   currentProfile = index;
   updateProfileUI(index);
   await sendPacket(buildProfilePacket(index), 'profile');
-  await sendPacket(buildHapticPacket(true), 'haptic');   // vibrate on profile change
+  // PAX vibrates automatically when HapticMode is enabled
   setTimeout(() => readAndProcess(), 300);
 }
 
