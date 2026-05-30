@@ -510,30 +510,44 @@ async function probeStatus() {
   debugLog('========== PROBE START ==========');
   probeNotifyCount = 0;
   probeArmed = true;
+
+  const tryAll = (label, bytes) => {
+    if (bytes.length < 16) return;
+    const first16  = bytes.slice(0, 16);
+    const second16 = bytes.length >= 32 ? bytes.slice(16, 32) : null;
+    // (A) standard: ct=first, iv=second
+    if (second16) debugLog(label + ' A[ct|iv]    ' + toHex(aesOFBEncrypt(sessionKey, second16, first16)));
+    // (B) swapped: ct=second, iv=first
+    if (second16) debugLog(label + ' B[iv|ct]    ' + toHex(aesOFBEncrypt(sessionKey, first16, second16)));
+    // (C) ct=first, iv=STATIC
+    debugLog(label + ' C[ct|statIV]' + toHex(aesOFBEncrypt(sessionKey, iv, first16)));
+    // (D) ct=second, iv=STATIC
+    if (second16) debugLog(label + ' D[2nd|statIV]' + toHex(aesOFBEncrypt(sessionKey, iv, second16)));
+    // (E) decrypt whole 32 with static IV
+    if (second16) debugLog(label + ' E[all|statIV]' + toHex(aesOFBEncrypt(sessionKey, iv, bytes)));
+  };
+
   // Step 1: read whatever's currently sitting on the read char
   try {
     const rv0 = await readChar.readValue();
     const r0 = new Uint8Array(rv0.buffer, rv0.byteOffset, rv0.byteLength);
     debugLog('PRE-READ[' + r0.length + 'b] ' + toHex(r0));
-    if (r0.length >= 32) {
-      debugLog('PRE DEC[ct|iv] ' + toHex(decryptPacket(r0)));
-      debugLog('PRE DEC[iv|ct] ' + toHex(decryptPacketSwapped(r0)));
-    }
+    tryAll('PRE', r0);
   } catch(e) { debugLog('PRE-READ err ' + e.message); }
+
   // Step 2: send status request and observe
   debugLog('-- sending status req --');
   await sendPacket(buildStatusRequestPacket(), 'probe');
+
   // Step 3: read after a delay
   await new Promise(r => setTimeout(r, 500));
   try {
     const rv = await readChar.readValue();
     const r = new Uint8Array(rv.buffer, rv.byteOffset, rv.byteLength);
     debugLog('POST-READ[' + r.length + 'b] ' + toHex(r));
-    if (r.length >= 32) {
-      debugLog('POST DEC[ct|iv] ' + toHex(decryptPacket(r)));
-      debugLog('POST DEC[iv|ct] ' + toHex(decryptPacketSwapped(r)));
-    }
+    tryAll('POST', r);
   } catch(e) { debugLog('POST-READ err ' + e.message); }
+
   debugLog('notifies during probe: ' + probeNotifyCount);
   debugLog('========== PROBE END ==========');
   probeArmed = false;
