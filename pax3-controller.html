@@ -266,11 +266,17 @@ function encryptPacket(plaintext) {
 }
 
 function decryptPacket(data) {
-  // data is a Uint8Array. Slice on the view directly — do NOT touch .buffer
-  // (the underlying ArrayBuffer ignores byteOffset and can include unrelated bytes).
-  const ct  = data.slice(0, 16);
-  const piv = data.slice(16, 32);
-  return aesOFBEncrypt(sessionKey, piv, ct);
+  const first  = data.slice(0, 16);
+  const second = data.slice(16, 32);
+  // Standard PAX assumption: [ct(0..15)][iv(16..31)]
+  return aesOFBEncrypt(sessionKey, second, first);
+}
+
+// Same data, opposite slice — used only for diagnostic comparison
+function decryptPacketSwapped(data) {
+  const first  = data.slice(0, 16);
+  const second = data.slice(16, 32);
+  return aesOFBEncrypt(sessionKey, first, second);
 }
 
 function buildPacket(attrId, ...bytes) {
@@ -457,8 +463,10 @@ async function connectDevice() {
           const rBytes = new Uint8Array(rv.buffer, rv.byteOffset, rv.byteLength);
           debugLog('READ[' + rv.byteLength + 'b]  ' + toHex(rBytes));
           if (rBytes.length >= 32) {
-            const dec = decryptPacket(rBytes);
-            debugLog('DEC    ' + toHex(dec.slice(0, 8)));
+            const dec  = decryptPacket(rBytes);
+            const dec2 = decryptPacketSwapped(rBytes);
+            debugLog('DEC[ct|iv] ' + toHex(dec.slice(0, 8)));
+            debugLog('DEC[iv|ct] ' + toHex(dec2.slice(0, 8)));
             processMessage(dec);
           }
         } catch(e) { debugLog('READ ERR ' + e.message); }
@@ -489,9 +497,9 @@ function disconnectDevice() { if(gatt?.connected) gatt.disconnect(); setConnecte
 let pollInterval = null;
 function startPolling() {
   pollInterval = setInterval(async () => {
-    await sendPacket(buildStatusRequestPacket());
-    setTimeout(() => readAndProcess(), 300);
-  }, 3000);
+    await sendPacket(buildStatusRequestPacket(), 'poll');
+    // notifications drive readChar reads; no manual read needed
+  }, 10000);
 }
 function stopPolling() { if(pollInterval){clearInterval(pollInterval);pollInterval=null;} }
 
