@@ -351,8 +351,22 @@ async function readAndProcess() {
 function processMessage(data) {
   switch(data[0]) {
     case ATTR_ACTUAL_TEMP: {
-      const raw = data[1] | (data[2] << 8);
-      const f = Math.round(raw / 10 * 9/5 + 32);
+      // Log raw bytes once per change for diagnosis
+      const raw16 = data[1] | (data[2] << 8);
+      const c_u16 = raw16 / 10;
+      const f_u16 = Math.round(c_u16 * 9/5 + 32);
+      // Try float32 LE at offset 1
+      const buf = new ArrayBuffer(4);
+      const bv = new DataView(buf);
+      bv.setUint8(0, data[1]); bv.setUint8(1, data[2]); bv.setUint8(2, data[3]); bv.setUint8(3, data[4]);
+      const c_f32 = bv.getFloat32(0, true);
+      const f_f32 = Math.round(c_f32 * 9/5 + 32);
+      debugLog('TEMP raw ' + toHex(data.slice(1,5)) + ' | u16=' + f_u16 + 'F | f32=' + f_f32 + 'F');
+      // Pick the more plausible value (PAX max ~430°F, min ~60°F when cold)
+      let f;
+      if (f_f32 >= 60 && f_f32 <= 450) f = f_f32;
+      else if (f_u16 >= 60 && f_u16 <= 450) f = f_u16;
+      else f = f_u16; // fall through anyway
       document.getElementById('tempLive').textContent = f + '° actual';
       break;
     }
