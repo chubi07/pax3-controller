@@ -172,6 +172,7 @@
     <div class="debug-header">
       <span>Debug</span>
       <div class="debug-btns">
+        <button type="button" onclick="probeStatus()">Probe</button>
         <button type="button" onclick="setHapticMode(1)">Hap ON</button>
         <button type="button" onclick="setHapticMode(0)">Hap OFF</button>
         <button type="button" onclick="copyDebug()">Copy</button>
@@ -249,6 +250,8 @@ const HAPTIC_OFF = 0;
 let device=null, gatt=null, writeChar=null, readChar=null, notifyChar=null;
 let sessionKey=null, iv=null;
 let currentProfile=0, currentTempF=360;
+let probeArmed = false;
+let probeNotifyCount = 0;
 
 function deriveSessionKey(serial) {
   const input = new TextEncoder().encode((serial+serial).slice(0,16));
@@ -452,35 +455,19 @@ async function connectDevice() {
     writeChar  = await paxSvc.getCharacteristic(CHAR_WRITE_UUID);
     notifyChar = await paxSvc.getCharacteristic(CHAR_NOTIFY_UUID);
 
-    notifyChar.addEventListener('characteristicvaluechanged', async (event) => {
+    notifyChar.addEventListener('characteristicvaluechanged', (event) => {
       const dv = event.target.value;
       const nBytes = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
-      debugLog('NOTIFY[' + dv.byteLength + 'b] ' + toHex(nBytes));
-      // PAX notify channel is a small ping. Real 32-byte packet is on readChar.
-      if (dv.byteLength < 32 && readChar) {
-        try {
-          const rv = await readChar.readValue();
-          const rBytes = new Uint8Array(rv.buffer, rv.byteOffset, rv.byteLength);
-          debugLog('READ[' + rv.byteLength + 'b]  ' + toHex(rBytes));
-          if (rBytes.length >= 32) {
-            const dec  = decryptPacket(rBytes);
-            const dec2 = decryptPacketSwapped(rBytes);
-            debugLog('DEC[ct|iv] ' + toHex(dec.slice(0, 8)));
-            debugLog('DEC[iv|ct] ' + toHex(dec2.slice(0, 8)));
-            processMessage(dec);
-          }
-        } catch(e) { debugLog('READ ERR ' + e.message); }
-      } else if (dv.byteLength >= 32) {
-        const dec = decryptPacket(nBytes);
-        debugLog('DEC    ' + toHex(dec.slice(0, 8)));
-        processMessage(dec);
+      if (probeArmed) {
+        debugLog('NOTIFY[' + dv.byteLength + 'b] ' + toHex(nBytes));
+        probeNotifyCount++;
       }
+      // No auto read — probe button handles that explicitly.
     });
     await notifyChar.startNotifications();
 
-    // Request full status on connect
-    await sendPacket(buildStatusRequestPacket());
-    setTimeout(() => readAndProcess(), 300);
+    // Skip auto status request — Probe button drives manual capture
+    probeArmed = false;
 
     setConnected(true);
     startPolling();
@@ -495,12 +482,7 @@ function onDisconnected() { setConnected(false); stopPolling(); }
 function disconnectDevice() { if(gatt?.connected) gatt.disconnect(); setConnected(false); stopPolling(); }
 
 let pollInterval = null;
-function startPolling() {
-  pollInterval = setInterval(async () => {
-    await sendPacket(buildStatusRequestPacket(), 'poll');
-    // notifications drive readChar reads; no manual read needed
-  }, 10000);
-}
+function startPolling() { /* disabled during debug — use Probe button instead */ }
 function stopPolling() { if(pollInterval){clearInterval(pollInterval);pollInterval=null;} }
 
 // ── UI Actions ────────────────────────────────────────────────────────────────
@@ -520,6 +502,41 @@ async function sendTemperature(val) {
 async function setHapticMode(on) {
   debugLog('-- HapticMode = ' + on + ' --');
   await sendPacket(buildPacket(ATTR_HAPTIC_MODE, on ? 1 : 0), 'hap-mode');
+}
+
+async function probeStatus() {
+  if (!writeChar || !readChar) { debugLog('probe: not connected'); return; }
+  document.getElementById('debugPanel').textContent = '';
+  debugLog('========== PROBE START ==========');
+  probeNotifyCount = 0;
+  probeArmed = true;
+  // Step 1: read whatever's currently sitting on the read char
+  try {
+    const rv0 = await readChar.readValue();
+    const r0 = new Uint8Array(rv0.buffer, rv0.byteOffset, rv0.byteLength);
+    debugLog('PRE-READ[' + r0.length + 'b] ' + toHex(r0));
+    if (r0.length >= 32) {
+      debugLog('PRE DEC[ct|iv] ' + toHex(decryptPacket(r0)));
+      debugLog('PRE DEC[iv|ct] ' + toHex(decryptPacketSwapped(r0)));
+    }
+  } catch(e) { debugLog('PRE-READ err ' + e.message); }
+  // Step 2: send status request and observe
+  debugLog('-- sending status req --');
+  await sendPacket(buildStatusRequestPacket(), 'probe');
+  // Step 3: read after a delay
+  await new Promise(r => setTimeout(r, 500));
+  try {
+    const rv = await readChar.readValue();
+    const r = new Uint8Array(rv.buffer, rv.byteOffset, rv.byteLength);
+    debugLog('POST-READ[' + r.length + 'b] ' + toHex(r));
+    if (r.length >= 32) {
+      debugLog('POST DEC[ct|iv] ' + toHex(decryptPacket(r)));
+      debugLog('POST DEC[iv|ct] ' + toHex(decryptPacketSwapped(r)));
+    }
+  } catch(e) { debugLog('POST-READ err ' + e.message); }
+  debugLog('notifies during probe: ' + probeNotifyCount);
+  debugLog('========== PROBE END ==========');
+  probeArmed = false;
 }
 
 function copyDebug() {
