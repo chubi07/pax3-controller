@@ -84,6 +84,7 @@
   .state-badge { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--border); color: var(--muted); transition: all 0.3s; }
   .state-badge.heating { border-color: var(--accent); color: var(--accent); background: rgba(255,107,43,0.08); }
   .state-badge.ready { border-color: var(--green); color: var(--green); background: rgba(74,222,128,0.08); }
+  .debug-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; pointer-events: auto; opacity: 1; }
   .debug-panel { background: #050505; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 12px; font-size: 10px; line-height: 1.5; color: #aaa; white-space: pre; overflow-x: auto; max-height: 320px; overflow-y: auto; -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
   .debug-header { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; }
   .debug-btns { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
@@ -163,15 +164,15 @@
     </div>
   </div>
 
-  <div class="card" style="padding:16px;">
+  <div class="debug-wrap">
     <div class="debug-header">
       <span>Debug</span>
       <div class="debug-btns">
-        <button onclick="testHaptic(1)">H:1</button>
-        <button onclick="testHaptic(128)">H:128</button>
-        <button onclick="testHaptic(255)">H:255</button>
-        <button onclick="copyDebug()">Copy</button>
-        <button onclick="document.getElementById('debugPanel').textContent=''">Clr</button>
+        <button type="button" onclick="testHaptic(1)">H:1</button>
+        <button type="button" onclick="testHaptic(128)">H:128</button>
+        <button type="button" onclick="testHaptic(255)">H:255</button>
+        <button type="button" onclick="copyDebug()">Copy</button>
+        <button type="button" onclick="document.getElementById('debugPanel').textContent=''">Clr</button>
       </div>
     </div>
     <div class="debug-panel" id="debugPanel"></div>
@@ -385,17 +386,24 @@ async function connectDevice() {
 
     // Serial — try to read from device, fall back to prompt
     let serial = 'DN6W1DN9';
+    let serialSource = 'fallback';
     try {
       const infoSvc = await gatt.getPrimaryService(DEV_INFO_SVC);
       const sysIdChar = await infoSvc.getCharacteristic(SYSTEM_ID_UUID);
       const val = await sysIdChar.readValue();
-      const s = String.fromCharCode(...new Uint8Array(val.buffer)).replace(/[^\x20-\x7E]/g,'').trim();
-      if (s.length >= 4) serial = s.slice(0,8).toUpperCase();
-    } catch(e) {}
+      const raw = new Uint8Array(val.buffer, val.byteOffset, val.byteLength);
+      debugLog('SYS_ID raw[' + raw.length + 'b] ' + toHex(raw));
+      const s = String.fromCharCode(...raw).replace(/[^\x20-\x7E]/g,'').trim();
+      debugLog('SYS_ID str "' + s + '"');
+      if (s.length >= 4) { serial = s.slice(0,8).toUpperCase(); serialSource = 'device'; }
+    } catch(e) { debugLog('SYS_ID err ' + e.message); }
+    debugLog('SERIAL ' + serial + ' (' + serialSource + ')');
 
     sessionKey = deriveSessionKey(serial);
+    debugLog('SESSKEY ' + toHex(sessionKey));
     // IV = first 16 bytes of service UUID string (matches PAX web app getUuid(16))
     iv = new TextEncoder().encode(SERVICE_UUID).slice(0,16);
+    debugLog('IV     ' + toHex(iv));
 
     const paxSvc = await gatt.getPrimaryService(SERVICE_UUID);
     readChar   = await paxSvc.getCharacteristic(CHAR_READ_UUID);
